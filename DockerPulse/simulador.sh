@@ -1,12 +1,11 @@
 #!/bin/bash
 
-# Colores para que se vea hacker
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m' 
 
-# Listas de Contenedores
+
 ALL_7="oracle-db nginx-web redis-cache postgres-db rabbitmq-msg python-api node-service"
 TOP_5="oracle-db nginx-web redis-cache postgres-db rabbitmq-msg"
 TOP_3="oracle-db nginx-web redis-cache"
@@ -24,12 +23,12 @@ echo ""
 echo -n "Elige una opción (1-4): "
 read opcion
 
-# Función para estresar contenedores
+
 atacar_docker() {
     lista=$1
     echo -e "\n${RED}🚀 Lanzando carga al 100% en: $lista ${NC}"
     for contenedor in $lista; do
-        # Ejecuta un bucle infinito dentro del contenedor por 60 segundos
+        
         docker exec -d $contenedor sh -c "timeout 60s sh -c 'while true; do :; done'"
     done
 }
