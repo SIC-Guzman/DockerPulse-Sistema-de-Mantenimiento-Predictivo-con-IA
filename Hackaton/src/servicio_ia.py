@@ -2,9 +2,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
-from src.notificador_email import enviar_alerta_html
-from src.generador_reporte import generar_pdf_incidente
-
+from notificador_email import enviar_alerta_html
+from generador_reporte import generar_pdf_incidente
 import json
 import pickle
 import pandas as pd
