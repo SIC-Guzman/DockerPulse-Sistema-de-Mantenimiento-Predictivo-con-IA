@@ -2,12 +2,16 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
+from src.notificador_email import enviar_alerta_html
+from src.generador_reporte import generar_pdf_incidente
+
 import json
 import pickle
 import pandas as pd
 import time
 import asyncio
 import docker
+
 
 # Intentamos importar tensorflow, si no está, no crasheamos
 try:
@@ -34,7 +38,7 @@ modelo_pred = None
 modelo_anom = None
 feature_cols = []
 
-print("⏳ Cargando Cerebro de IA...")
+print(" Cargando Cerebro de IA...")
 try:
     if not RUTA_SCALER.exists() or not RUTA_MODELO_PRED.exists():
         raise FileNotFoundError("Faltan archivos de modelos (.pkl o .h5)")
@@ -52,11 +56,11 @@ try:
         modelo_anom = pickle.load(f)
         
     MODELOS_CARGADOS = True
-    print("✅ IA Cargada: Sistema listo para predecir.")
+    print(" IA Cargada: Sistema listo para predecir.")
 
 except Exception as e:
-    print(f"⚠️ ADVERTENCIA: No se pudo cargar la IA ({e}).")
-    print("👉 El sistema funcionará en MODO EMERGENCIA (Solo reglas de CPU > 90%).")
+    print(f" ADVERTENCIA: No se pudo cargar la IA ({e}).")
+    print(" El sistema funcionará en MODO EMERGENCIA (Solo reglas de CPU > 90%).")
 
 # ===============================
 # CLIENTE DOCKER
@@ -64,7 +68,7 @@ except Exception as e:
 try:
     docker_client = docker.from_env()
 except Exception as e:
-    print("❌ ERROR CRÍTICO: No se detecta Docker. Asegúrate de que Docker Desktop esté corriendo.")
+    print(" ERROR CRÍTICO: No se detecta Docker. Asegúrate de que Docker Desktop esté corriendo.")
     docker_client = None
 
 # ===============================
@@ -197,7 +201,7 @@ def api_restart(req: RestartRequest):
         raise HTTPException(500, "Docker no está conectado.")
     
     try:
-        print(f"🖲️ Solicitud manual: Reiniciando {req.container_name}...")
+        print(f" Solicitud manual: Reiniciando {req.container_name}...")
         cont = docker_client.containers.get(req.container_name)
         cont.restart()
         return {"ok": True, "mensaje": f"{req.container_name} reiniciado."}
@@ -221,7 +225,7 @@ def obtener_peor_contenedor(datos):
     return max(conts, key=lambda c: c.get("cpu", 0))
 
 async def sentinel_loop():
-    print("🛡️ SENTINEL V2.0 ACTIVO: Vigilando infraestructura...")
+    print(" SENTINEL V2.0 ACTIVO: Vigilando infraestructura...")
     
     while True:
         try:
@@ -253,25 +257,39 @@ async def sentinel_loop():
                         
                         # Chequear Cooldown (Para no reiniciar a lo loco)
                         if (ahora - ultimo_tiempo) > COOLDOWN:
-                            razon = "EMERGENCIA CPU > 90%" if gatillo_emergencia else "PREDICCIÓN IA CRÍTICA"
-                            print(f"🚨 ALERT: {nombre} está en problemas (CPU: {cpu_actual}%). Razón: {razon}")
-                            print(f"🚑 ACCIÓN: Reiniciando {nombre} automáticamente...")
+                            razon = "EMERGENCIA CPU > 90%" if gatillo_emergencia else "RIESGO IA PREDICHO"
+                            
+                            print(f" ALERT: {nombre} está en problemas (CPU: {cpu_actual}%). Razón: {razon}")
+                            print(f" ACCIÓN: Reiniciando {nombre} automáticamente...")
                             
                             if docker_client:
                                 docker_client.containers.get(nombre).restart()
                                 ultimo_restart[nombre] = ahora
-                                print(f"✅ {nombre} reiniciado. Sistema estabilizándose.")
+                                print(f" {nombre} reiniciado. Sistema estabilizándose.")
                                 
-                                # AQUÍ VA EL CÓDIGO DE ENVIAR CORREO (Pendiente de tu compañero)
-                                # enviar_correo(nombre, razon)
+                                # === ZONA DE NOTIFICACIONES (PERSONA 2) ===
+                                print(" Notificando a Gerencia y DevOps...")
+                                
+                                # 1. Generar Reporte PDF
+                                try:
+                                    ruta_pdf = generar_pdf_incidente(nombre, cpu_actual, riesgo_ia)
+                                    print(f" Reporte generado: {ruta_pdf}")
+                                except Exception as e_pdf:
+                                    print(f" Error generando PDF: {e_pdf}")
+
+                                try:
+                                    enviar_alerta_html(nombre, cpu_actual, razon)
+                                    print(" Correo enviado.")
+                                except Exception as e_email:
+                                    print(f" Error enviando correo: {e_email}")
+                            
                             
                         else:
-                            # Está en cooldown, solo observamos
-                            # print(f"⏳ {nombre} sufriendo, pero en cooldown...")
+                    
                             pass
                             
         except Exception as e:
-            print(f"⚠️ Error en Sentinel Loop: {e}")
+            print(f" Error en Sentinel Loop: {e}")
             
         await asyncio.sleep(INTERVALO_CHECK)
 
