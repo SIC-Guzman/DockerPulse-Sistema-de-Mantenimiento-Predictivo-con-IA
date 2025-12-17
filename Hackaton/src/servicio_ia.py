@@ -13,15 +13,11 @@ import asyncio
 import docker
 
 
-# Intentamos importar tensorflow, si no está, no crasheamos
 try:
     from tensorflow.keras.models import load_model
 except ImportError:
     load_model = None
 
-# ===============================
-# CONFIGURACIÓN Y RUTAS
-# ===============================
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 RUTA_JSON_VIVO = BASE_DIR / "datos_en_vivo.json"
@@ -29,9 +25,6 @@ RUTA_SCALER = BASE_DIR / "models" / "scaler_features.pkl"
 RUTA_MODELO_PRED = BASE_DIR / "models" / "modelo_prediccion.h5"
 RUTA_MODELO_ANOM = BASE_DIR / "models" / "modelo_anomalia.pkl"
 
-# ===============================
-# CARGA DE MODELOS (MODO SEGURO)
-# ===============================
 MODELOS_CARGADOS = False
 scaler = None
 modelo_pred = None
@@ -62,18 +55,12 @@ except Exception as e:
     print(f" ADVERTENCIA: No se pudo cargar la IA ({e}).")
     print(" El sistema funcionará en MODO EMERGENCIA (Solo reglas de CPU > 90%).")
 
-# ===============================
-# CLIENTE DOCKER
-# ===============================
 try:
     docker_client = docker.from_env()
 except Exception as e:
     print(" ERROR CRÍTICO: No se detecta Docker. Asegúrate de que Docker Desktop esté corriendo.")
     docker_client = None
 
-# ===============================
-# API FASTAPI
-# ===============================
 app = FastAPI(title="DockerPulse Sentinel")
 
 app.add_middleware(
@@ -85,10 +72,6 @@ app.add_middleware(
 
 class RestartRequest(BaseModel):
     container_name: str
-
-# ===============================
-# LOGICA DE NEGOCIO
-# ===============================
 
 def leer_datos_vivos():
     if not RUTA_JSON_VIVO.exists():
@@ -102,7 +85,6 @@ def leer_datos_vivos():
         return {"timestamp": 0, "host": {}, "contenedores": []}
 
 def construir_features(datos):
-    # Si no hay datos, retornamos features vacios
     if not datos.get("host"):
         return None
 
@@ -116,7 +98,6 @@ def construir_features(datos):
     def g(nombre, tipo):
         return conts.get(nombre, {}).get(tipo, 0.0)
 
-    # Mapeo exacto de las columnas que espera la IA
     nombres_esperados = [
         "oracle-db", "nginx-web", "redis-cache", "postgres-db", 
         "rabbitmq-msg", "python-api", "node-service"
@@ -145,21 +126,17 @@ def evaluar_ia(datos):
         if not features: 
             return resultado_default
 
-        # Preparar vector para la IA
         vector = [features.get(col, 0) for col in feature_cols]
         df = pd.DataFrame([vector], columns=feature_cols)
         X = scaler.transform(df)
 
-        # 1. Predicción de Futuro (Regresión)
         cpu_futura = float(modelo_pred.predict(X, verbose=0)[0][0])
         
         if cpu_futura >= 80: nivel = "ALTO"
         elif cpu_futura >= 50: nivel = "MEDIO"
         else: nivel = "BAJO"
 
-        # 2. Detección de Anomalías (Isolation Forest / K-Means)
         cluster = int(modelo_anom.predict(X)[0])
-        # Asumiendo que cluster 1 es anómalo (ajustar según tu modelo)
         es_anomalo = (cluster == 1)
 
         return {
@@ -176,9 +153,6 @@ def evaluar_ia(datos):
         print(f"Error en inferencia IA: {e}")
         return resultado_default
 
-# ===============================
-# ENDPOINTS API
-# ===============================
 
 @app.get("/api/status")
 def api_status():
@@ -210,18 +184,14 @@ def api_restart(req: RestartRequest):
     except Exception as e:
         raise HTTPException(500, str(e))
 
-# ===============================
-# MOTOR DE AUTO-REPARACIÓN (SELF-HEALING)
-# ===============================
-COOLDOWN = 30  # Segundos de espera entre reinicios
-INTERVALO_CHECK = 3 # Segundos entre chequeos
+COOLDOWN = 30  
+INTERVALO_CHECK = 3 
 
-ultimo_restart = {} # Diccionario para guardar timestamps { 'nginx': 17000... }
+ultimo_restart = {}
 
 def obtener_peor_contenedor(datos):
     conts = datos.get("contenedores", [])
     if not conts: return None
-    # Devuelve el objeto completo del contenedor con más CPU
     return max(conts, key=lambda c: c.get("cpu", 0))
 
 async def sentinel_loop():
@@ -232,30 +202,24 @@ async def sentinel_loop():
             if RUTA_JSON_VIVO.exists():
                 datos = leer_datos_vivos()
                 
-                # 1. Analizar situación
                 peor_cont = obtener_peor_contenedor(datos)
                 
                 if peor_cont:
                     nombre = peor_cont["nombre"]
                     cpu_actual = peor_cont.get("cpu", 0)
                     
-                    # Consultar IA
                     ia = evaluar_ia(datos)
                     riesgo_ia = ia["prediccion"]["nivel_riesgo"]
                     
-                    # === REGLAS DE DECISIÓN (EL CEREBRO) ===
-                    
-                    # Regla 1: Emergencia Real (Sin IA)
+
                     gatillo_emergencia = (cpu_actual > 90.0)
                     
-                    # Regla 2: Predicción de IA
                     gatillo_ia = (riesgo_ia == "ALTO")
                     
                     if gatillo_emergencia or gatillo_ia:
                         ahora = time.time()
                         ultimo_tiempo = ultimo_restart.get(nombre, 0)
                         
-                        # Chequear Cooldown (Para no reiniciar a lo loco)
                         if (ahora - ultimo_tiempo) > COOLDOWN:
                             razon = "EMERGENCIA CPU > 90%" if gatillo_emergencia else "RIESGO IA PREDICHO"
                             
@@ -267,10 +231,8 @@ async def sentinel_loop():
                                 ultimo_restart[nombre] = ahora
                                 print(f" {nombre} reiniciado. Sistema estabilizándose.")
                                 
-                                # === ZONA DE NOTIFICACIONES (PERSONA 2) ===
                                 print(" Notificando a Gerencia y DevOps...")
                                 
-                                # 1. Generar Reporte PDF
                                 try:
                                     ruta_pdf = generar_pdf_incidente(nombre, cpu_actual, riesgo_ia)
                                     print(f" Reporte generado: {ruta_pdf}")
