@@ -7,6 +7,7 @@ import random
 
 st.set_page_config(page_title="DockerPulse Monitor", page_icon="🐳", layout="wide")
 
+# ESTILOS CSS
 st.markdown("""
     <style>
     .metric-card {
@@ -34,7 +35,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-
+# GESTIÓN DE ESTADO (MEMORIA)
 if 'incident_history' not in st.session_state:
     st.session_state['incident_history'] = {}
 
@@ -44,6 +45,7 @@ def update_incident_count(container_name, is_critical):
         st.session_state['incident_history'][container_name] = random.randint(1, 3)
     
     if is_critical:
+        # Probabilidad de incrementar contador para simulación
         if random.random() < 0.2: 
             st.session_state['incident_history'][container_name] += 1
 
@@ -51,18 +53,18 @@ def update_incident_count(container_name, is_critical):
 
 def get_data():
     try:
+        # Intentamos conectar a la API local
         response = requests.get("http://localhost:8000/api/status", timeout=0.5)
         if response.status_code == 200:
             return response.json()
     except:
         return None
 
+# GENERADORES DE REPORTE
 def generar_historial_falso(n_veces):
-    """Genera filas de tabla HTML simulando eventos pasados"""
     rows = ""
     ahora = datetime.datetime.now()
     for i in range(n_veces):
-        # Restamos minutos para simular eventos pasados
         t_evento = ahora - datetime.timedelta(minutes=(n_veces - i) * 5 + random.randint(1,4))
         id_ev = str(uuid.uuid4()).split('-')[0].upper()
         rows += f"""
@@ -76,7 +78,6 @@ def generar_historial_falso(n_veces):
     return rows
 
 def generar_reporte_html_pro(nombre, cpu, ram, riesgo, contador_reini):
-    
     ahora = datetime.datetime.now()
     fecha_str = ahora.strftime("%d/%m/%Y")
     hora_str = ahora.strftime("%H:%M:%S")
@@ -84,8 +85,6 @@ def generar_reporte_html_pro(nombre, cpu, ram, riesgo, contador_reini):
     
     color_header = "#d9534f" if riesgo == "ALTO" else "#0275d8"
     estado_texto = "CRÍTICO - RECURRENTE" if contador_reini > 5 else "ALERTA DE RENDIMIENTO"
-    
-    # Filas del historial simulado
     filas_historial = generar_historial_falso(contador_reini)
 
     html_content = f"""
@@ -197,25 +196,31 @@ with col2:
 data = get_data()
 
 if not data:
-    st.warning(" Conectando con el Núcleo de IA...")
+    st.warning("📡 Conectando con el Núcleo de IA...")
     time.sleep(2)
     st.rerun()
 
-kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-riesgo_global = data['prediccion'].get('nivel_riesgo', 'BAJO')
-emoji = "🟢" if riesgo_global != "ALTO" else "🔴"
+# --- AQUÍ ESTABA EL ERROR: LEEMOS LOS DATOS CORRECTAMENTE ---
+ia_data = data.get('ia', {}) 
+riesgo_bool = ia_data.get('riesgo_colapso', False)
+prediccion_cpu = ia_data.get('prediccion_cpu', 0)
 
-kpi1.metric(" CPU GLOBAL", f"{data['host']['cpu']}%")
-kpi2.metric(" RAM GLOBAL", f"{data['host']['ram']}%")
-kpi3.metric(" RIESGO IA", f"{riesgo_global} {emoji}")
-kpi4.metric(" PREDICCIÓN", f"{data['prediccion'].get('Host_CPU_future', 0)}%")
+riesgo_global = "ALTO" if riesgo_bool else "BAJO"
+emoji = "🔴" if riesgo_bool else "🟢"
+
+# Métricas Superiores
+kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+kpi1.metric("🖥️ CPU HOST", f"{data.get('host', {}).get('cpu', 0)}%")
+kpi2.metric("💾 RAM HOST", f"{data.get('host', {}).get('ram', 0)}%")
+kpi3.metric("🧠 RIESGO IA", f"{riesgo_global} {emoji}")
+kpi4.metric("🔮 PREDICCIÓN", f"{prediccion_cpu}%")
 
 st.divider()
 
 if riesgo_global == "ALTO":
-    st.error(" ALERTA: LA IA ESTÁ INTERVINIENDO ACTIVAMENTE. REVISE LOS REPORTES.", icon="🔥")
+    st.error("🚨 ALERTA: LA IA ESTÁ INTERVINIENDO ACTIVAMENTE. REVISE LOS REPORTES.", icon="🔥")
 
-st.subheader(" Estado de Microservicios")
+st.subheader("📦 Estado de Microservicios")
 conts = data.get("contenedores", [])
 
 if conts:
@@ -243,14 +248,14 @@ if conts:
                 nombre_archivo = f"Reporte_{c['nombre']}_{int(time.time())}.html"
                 
                 st.download_button(
-                    label=f" Descargar Auditoría",
+                    label=f"📄 Descargar Auditoría",
                     data=html_reporte,
                     file_name=nombre_archivo,
                     mime="text/html",
                     key=f"btn_html_{c['nombre']}_{idx}" 
                 )
 else:
-    st.info("Escaneando contenedores...")
+    st.info("🔍 Escaneando contenedores...")
 
 time.sleep(1)
 st.rerun()

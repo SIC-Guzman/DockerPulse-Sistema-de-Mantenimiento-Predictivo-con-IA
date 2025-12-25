@@ -3,58 +3,93 @@ from sklearn.preprocessing import MinMaxScaler
 from pathlib import Path
 import pickle
 
-# Ajusta esta ruta si moviste el CSV a otra carpeta
-RUTA_CSV_ENTRADA = Path("DockerPulse/datos_entrenamiento.csv")
-RUTA_CSV_SALIDA = Path("DockerPulse/datos_procesados.csv")
-RUTA_SCALER = Path("models/scaler_features.pkl")
+# ==============================
+# RUTAS (ajústalas solo si cambias la estructura)
+# ==============================
+RUTA_CSV_ENTRADA = Path("../../data/DockerPulse/datos_entrenamiento.csv")
+RUTA_CSV_SALIDA = Path("../data/datos_procesados.csv")
+RUTA_SCALER = Path("../models/scaler_features.pkl")
+
+# ==============================
+# CONFIGURACIÓN
+# ==============================
+# Cada fila ≈ 15s → 4 pasos ≈ 1 minuto
+FUTURE_STEPS = 4
+
+# Features seleccionadas (balance entre señal y ruido)
+FEATURE_COLS = [
+    "Host_CPU", "Host_RAM",
+    "oracle-db_CPU",
+    "nginx-web_CPU",
+    "redis-cache_CPU",
+    "postgres-db_CPU",
+    "rabbitmq-msg_CPU",
+    "python-api_CPU",
+    "node-service_CPU",
+]
+
+TARGET_COL = "Host_CPU_future"
+
 
 def main():
-    # Leer CSV original
+    print("🔹 Cargando dataset original...")
     df = pd.read_csv(RUTA_CSV_ENTRADA)
 
-    # Crear columna objetivo: Host_CPU del siguiente instante
-    df["Host_CPU_future"] = df["Host_CPU"].shift(-1)
+    # ==============================
+    # LIMPIEZA Y ORDEN
+    # ==============================
+    print("🔹 Procesando timestamp...")
+    if "Timestamp" in df.columns:
+        df["Timestamp"] = pd.to_datetime(df["Timestamp"], format="%H:%M:%S")
+        df = df.sort_values("Timestamp")
 
-    # Eliminar la última fila (tiene Host_CPU_future = NaN)
-    df = df.dropna(subset=["Host_CPU_future"])
+    df.dropna(inplace=True)
 
-    # Columnas numéricas que usaremos como features
-    feature_cols = [
-        "Host_CPU", "Host_RAM",
-        "oracle-db_CPU", "oracle-db_RAM",
-        "nginx-web_CPU", "nginx-web_RAM",
-        "redis-cache_CPU", "redis-cache_RAM",
-        "postgres-db_CPU", "postgres-db_RAM",
-        "rabbitmq-msg_CPU", "rabbitmq-msg_RAM",
-        "python-api_CPU", "python-api_RAM",
-        "node-service_CPU", "node-service_RAM",
-    ]
+    # ==============================
+    # VARIABLE FUTURA (PREDICCIÓN)
+    # ==============================
+    print(f"🔹 Creando variable futura a {FUTURE_STEPS * 15} segundos...")
+    df[TARGET_COL] = df["Host_CPU"].shift(-FUTURE_STEPS)
+    df.dropna(inplace=True)
 
-    X = df[feature_cols]
-    y = df["Host_CPU_future"]
+    # ==============================
+    # ESCALADO DE FEATURES
+    # ==============================
+    print("🔹 Normalizando features...")
+    X = df[FEATURE_COLS]
+    y = df[TARGET_COL]
 
-    # Normalizamos solo las features
     scaler = MinMaxScaler()
     X_scaled = scaler.fit_transform(X)
 
-    # Volvemos a DataFrame
-    df_out = pd.DataFrame(X_scaled, columns=feature_cols)
-    df_out["Host_CPU_future"] = y.values  # dejamos el target tal cual (sin escalar)
+    # Dataset final
+    df_out = pd.DataFrame(X_scaled, columns=FEATURE_COLS)
+    df_out[TARGET_COL] = y.values
 
-    # Crear carpetas si no existen
+    # ==============================
+    # GUARDADO
+    # ==============================
     RUTA_CSV_SALIDA.parent.mkdir(parents=True, exist_ok=True)
     RUTA_SCALER.parent.mkdir(parents=True, exist_ok=True)
 
-    # Guardar CSV preprocesado
     df_out.to_csv(RUTA_CSV_SALIDA, index=False)
-    print(f"Archivo preprocesado guardado en: {RUTA_CSV_SALIDA}")
+    print(f"✅ Dataset preprocesado guardado en: {RUTA_CSV_SALIDA}")
 
-    # Guardar scaler para usarlo luego en predicciones en vivo
     with open(RUTA_SCALER, "wb") as f:
-        pickle.dump({"scaler": scaler, "feature_cols": feature_cols}, f)
+        pickle.dump(
+            {
+                "scaler": scaler,
+                "feature_cols": FEATURE_COLS,
+                "future_steps": FUTURE_STEPS,
+                "target": TARGET_COL,
+            },
+            f,
+        )
 
-    print(f"Scaler guardado en: {RUTA_SCALER}")
-    print("Columnas usadas como features:", feature_cols)
+    print(f"✅ Scaler guardado en: {RUTA_SCALER}")
+    print("📌 Features usadas:", FEATURE_COLS)
+    print("🎯 Target:", TARGET_COL)
+    print("🚀 Preprocesamiento finalizado correctamente")
 
 
 if __name__ == "__main__":
